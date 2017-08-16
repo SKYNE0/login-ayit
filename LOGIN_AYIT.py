@@ -109,8 +109,8 @@ class hppv:
 if __name__ == '__main__':
     Basic_info = {      ###以下是个人信息，学校代码可登录教务网主页，翻看网页源代码得到###
         "school_code": "11330",                      ###学校代码 ###
-        "user_id": "15031310170",
-        "pwd": "950204",
+        "user_id": "**********",                     ###学号###
+        "pwd": "*******",                           ###密码####
         "home_url": "http://jwgl.ayit.edu.cn/"      ###教务网主页 ###
     }
     login = hppv(Basic_info)
