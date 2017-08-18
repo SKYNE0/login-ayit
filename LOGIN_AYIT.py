@@ -17,19 +17,18 @@ home_page = http://jwgl.ayit.edu.cn/        method=GET    # 教务网主页
 login_url = http://jwgl.ayit.edu.cn/_data/login.aspx，   method=POST    # 教务网post登陆地址
 Vcode_url = http://jwgl.ayit.edu.cn/sys/ValidateCode.aspx，   method=GET   # 获取验证码验证码地址
 Basic_info_url = http://jwgl.ayit.edu.cn/xsxj/Stu_MyInfo_RPT.aspx,  method=GET  # 基本信息获取地址
-score_url = http://jwgl.ayit.edu.cn/xscj/Stu_cjfb_rpt.aspx,      method=POST  # 成绩信息获取地址，需要post提交数据
 name_code_url = http://jwgl.ayit.edu.cn/xscj/private/list_xhxm.aspx, method=GET  # 姓名，学号获取地址
 your_image = http://jwgl.ayit.edu.cn/_photo/student/20150000331008nBNWLMbf.JPG,  method=GET  # 顾名思义
-
+score_url = http://jwgl.ayit.edu.cn/xscj/Stu_cjfb_rpt.aspx,      method=POST  # 成绩信息获取地址，需要post提交数据
+###http://jwgl.ayit.edu.cn/xscj/Stu_MyScore_rpt.aspx###该地址也是成绩地址，但返回的是图片，不是文本。难以提取其中信息。
 """
 """下述是本脚本所需要的库"""
 import requests
 import hashlib
 import re
+import time
 from lxml import html
 from urllib.parse import urljoin
-"""下面是实现模拟登录的各个功能函数或者类"""
-
 """下面的类主要是构建Header请求头和POST数据以及加密密码(PWD)与验证码(Vcode)，叫什么名字呢，就叫HPPV吧"""
 class hppv:
     def __init__(self,Basic_info):
@@ -66,14 +65,18 @@ class hppv:
             "txt_sdertfgsadscxcadsads": "",     # 未发现实际意义
             "pcInfo": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36undefined5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36 SN:NULL",
         }
-        response = requests.get(url=self.login_url,headers=self.Header())  #此处注意，url位于login_url
-        selector = html.fromstring(response.text)
-        post_data["__VIEWSTATE"] = selector.xpath("//*[@id='Logon']/input[1]/@value")[0]
-        post_data["__VIEWSTATEGENERATOR"] = selector.xpath("//*[@id='Logon']/input[2]/@value")[0]
-        post_data["txt_asmcdefsddsd"] = self.user_id
-        post_data["dsdsdsdsdxcxdfgfg"] = self.Pwd_encrypt()
-        post_data["fgfggfdgtyuuyyuuckjg"] = self.Vcode_encrypt()
-        return post_data
+        self.ses.get(url=self.home_url,headers=self.Header())                 ###直接访问login_url会发生错误，故先访问home_page
+        response = self.ses.get(url=self.login_url,headers=self.Header())      ###此处注意，url位于login_url
+        if response.status_code == 200:
+            selector = html.fromstring(response.text)
+            post_data["__VIEWSTATE"] = selector.xpath("//*[@id='Logon']/input[1]/@value")[0]
+            post_data["__VIEWSTATEGENERATOR"] = selector.xpath("//*[@id='Logon']/input[2]/@value")[0]
+            post_data["txt_asmcdefsddsd"] = self.user_id
+            post_data["dsdsdsdsdxcxdfgfg"] = self.Pwd_encrypt()
+            post_data["fgfggfdgtyuuyyuuckjg"] = self.Vcode_encrypt()
+            return post_data
+        else:
+            print("Sorry A {} Error Occurred!" .format(response.status_code))
     def Md5_sum(self,obj):
         """这个是根据加密机制，反过来推出的，首先计算密码的16进制的哈希值，取前30位，并大写。然后再与学号，学校代码相加，
         再重复上一步骤，最终获得加密后的密码。验证码则不需要加学号。"""
@@ -92,26 +95,85 @@ class hppv:
         vcode = input("Please input the vcode:")
         vcode_encrypt = self.Md5_sum(self.Md5_sum(vcode.upper()) + self.school_code)
         return vcode_encrypt
-    def Get_info(self):
-        response = self.ses.get(url=urljoin(self.home_url,'xscj/private/list_xhxm.aspx'),headers=self.Header())
-        return response.text
+    def Get_All(self):
+        res_name = self.ses.get(url=urljoin(self.home_url,'xscj/private/list_xhxm.aspx'),headers=self.Header())
+        res_score = self.ses.post(url=urljoin(self.home_url,'xscj/Stu_cjfb_rpt.aspx'),data= self.Postdata_score(),headers=self.Header())
+        self.Get_Basic_info()
+        with open('Your_Score.docx','ab') as f:
+            f.write(res_name.content)
+            f.write(res_score.content)
+            print ( "All infomation is saved,Please check!" )
+    def Get_Basic_info(self):
+        info_num = input("Do you have access to your Personal information?\n1->YES OR 任意键->NO:")
+        if info_num == '1':
+            Basic_info = self.ses.get(url=urljoin(self.home_url,'xsxj/Stu_MyInfo_RPT.aspx'),headers=self.Header())
+            if Basic_info.status_code == 200:
+                with open('Basic_info.docx','wb') as f:
+                    f.write(Basic_info.content)
+            selector = html.fromstring(Basic_info.text)
+            photo_url = selector.xpath("//img/@src")
+            Your_photo = self.ses.get(url=urljoin(self.home_url,photo_url[0]),headers=self.Header())
+            if Your_photo.status_code == 200:
+                with open('Your_photo.jpg','wb') as f:
+                    f.write(Your_photo.content)
+    def Postdata_score(self):
+        postdata_score = {
+            "sel_xq": "",               ### 学期，0代表第一学期，1代表第二学期
+            "SelXNXQ": "",              ### 学期，学年。0==入学以来，1==学年，2==学期
+            "sel_xn": "",            ### 年份
+            "submit": "检索".encode ('gb2312'),
+
+        }
+        XNXQ = input(u"Please choose the way you want to query\nand 0->入学以来，1->学年，2->学期:")
+        if XNXQ == '0':
+            Year = int(input("Please enter the year you need query:"))
+            sys_year = int(time.strftime("%Y"))
+            if sys_year <= Year <=sys_year - 4:
+                postdata_score["SelXNXQ"] = '0'
+                postdata_score.pop("sel_xq")
+                postdata_score.pop("SelXNXQ")
+                return postdata_score
+        elif XNXQ == '1':
+            Year = int(input ("Please enter the year you need query:"))
+            sys_year = int(time.strftime ("%Y"))
+            if sys_year <= Year <= sys_year - 4:
+                postdata_score["sel_xn"] = str(Year)
+                postdata_score["SelXNXQ"] = '1'
+                postdata_score.pop("sel_xq")
+                return postdata_score
+        elif XNXQ == '2':
+            Year = int(input ("Please enter the year you need query:"))
+            sys_year = int(time.strftime("%Y"))
+            if sys_year <= Year <= sys_year - 4:
+                Term = input ("Please enter the term you need query:")
+                if Term in ['1','2']:
+                    Term = str(int(Term) - 1)
+                    postdata_score["sel_xn"] = str(Year)
+                    postdata_score["sel_xq"] = Term
+                    postdata_score["SelXNXQ"] = '2'
+                    return postdata_score
+        else:
+            print("Sorry enter error,Please enter again!")
+            self.Postdata_score()
     def Try_login(self):
         self.Get_vcode()
         response = self.ses.post(url=self.login_url,data=self.Post_data(),headers=self.Header())
         if re.search(u"正在加载权限",response.text):
-            print(self.Get_info())
-            print(u"登录成功！")
-        elif re.search(u"验证码错误"):
-            print(u"验证码错误，请重试！")
+            print ( u"Login Successful,Please wait a monent")
+            self.Get_All()
+        elif re.search(u"帐号或密码不正确",response.text):
+            print(u"Sorry The Account Number Or Password Is Incorrect!，Please Try Again")
+        elif re.search(u"验证码错误",response.text):
+            print(u"Sorry Vcode(验证码) Error，Please Try Again")
         else:
-            print(u"登录错误，请检查!")
+            print(u"Sorry Login Error")
 
 if __name__ == '__main__':
     Basic_info = {      ###以下是个人信息，学校代码可登录教务网主页，翻看网页源代码得到###
-        "school_code": "11330",                      ###学校代码 ###
-        "user_id": "**********",                     ###学号###
-        "pwd": "*******",                           ###密码####
-        "home_url": "http://jwgl.ayit.edu.cn/"      ###教务网主页 ###
+        "school_code": "11330",                       ###学校代码 ###
+        "user_id": "*********",                     ###学号###
+        "pwd": "******",                              ###密码####
+        "home_url": "http://jwgl.ayit.edu.cn/"        ###教务网主页 ###
     }
     login = hppv(Basic_info)
     login.Try_login()
